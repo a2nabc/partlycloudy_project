@@ -1,0 +1,27 @@
+# Participant and neuroimaging data
+*.nii
+*.nii.gz
+*.mat
+*.dcm
+*.tsv
+*.csv
+
+# Copyrighted video
+*.mov
+*.mp4
+*.avi
+
+# SPM outputs
+SPM.mat
+beta_*.nii
+con_*.nii
+spmT_*.nii
+masklish*.nii
+
+# Local outputs and environments
+outputs/*
+.env
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
