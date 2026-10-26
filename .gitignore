@@ -4,7 +4,6 @@
 *.mat
 *.dcm
 *.tsv
-*.csv
 
 # Copyrighted video
 *.mov
@@ -19,9 +18,36 @@ spmT_*.nii
 masklish*.nii
 
 # Local outputs and environments
-outputs/*
+# Keep generated results, manifests, review links, and raw inference local.
+/outputs/
+*.log
+slurm-*.out
+*.tmp
+*.temp
+*.lock
 .env
 .venv/
 __pycache__/
 .ipynb_checkpoints/
 .DS_Store
+
+# Generated media, downloaded model weights, and local caches
+*.mkv
+*.webm
+*.m4v
+*.safetensors
+pytorch_model*.bin
+*.pt
+*.pth
+*.ckpt
+*.gguf
+.cache/
+hf_cache/
+.huggingface/
+models/
+model_weights/
+checkpoints/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
