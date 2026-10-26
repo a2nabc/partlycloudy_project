@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Zero-shot video/text similarity on the 19 Partly Cloudy event clips.
 
-Copy to code/xclip_video_pilot.py. Run on a Triton GPU node:
+Run on a Triton GPU node:
     export HF_HOME=/scratch/work/bernada4/hf_cache
-    python code/xclip_video_pilot.py
+    python code/legacy/xclip_video_pilot.py
 
 X-CLIP produces similarity logits for four fixed text descriptions. It does
 not generate the descriptions, classify with a trained four-class head, or
@@ -22,7 +22,7 @@ import torch
 from transformers import AutoModel, AutoProcessor
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "outputs/clips_offset_minus10s/manifest.csv"
 CLIP_DIR = MANIFEST.parent
 OUTPUT = ROOT / "outputs/xclip_base_19_events.jsonl"

@@ -2,7 +2,7 @@
 """Zero-shot pilot: one human-annotated clip from each of four conditions.
 
 Requires a GPU and a Transformers release with native Qwen2.5-VL video input.
-Run from the project repository: python code/qwen_video_pilot.py
+Run from the project repository: python code/legacy/qwen_video_pilot.py
 """
 
 import csv
@@ -13,7 +13,7 @@ import torch
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CLIP_DIR = ROOT / "outputs" / "clips_offset_minus10s"
 MANIFEST = CLIP_DIR / "manifest.csv"
 OUTPUT = ROOT / "outputs" / "qwen2_5_vl_3b_pilot.jsonl"

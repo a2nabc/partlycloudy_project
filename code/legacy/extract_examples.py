@@ -2,7 +2,7 @@
 """Extract the 19 hand-coded Partly Cloudy events from the shared movie.
 
 Run from the project repository with:
-    python code/extract_events.py
+    python code/legacy/extract_examples.py
 
 The CSV contains the original onsets from mov_localizer.m. Those onsets
 include a 10-second fixation period before the movie. Subtract 10 seconds
@@ -16,10 +16,11 @@ import csv
 import subprocess
 from pathlib import Path
 
-DEFAULT_MOVIE = Path(
-    "/m/nbe/project/partlycloudy/moviestimulus/partly_cloudy_sd_nocredits.mov"
+DEFAULT_MOVIE = (
+    Path(__file__).resolve().parents[2]
+    / "moviestimulus" / "partly_cloudy_sd_nocredits.mov"
 )
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def video_duration(movie: Path) -> float:
