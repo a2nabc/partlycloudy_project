@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert ranked candidate focus intervals to MATLAB timing files.
+"""Convert ranked candidate windows or face intervals to MATLAB timing files.
 
 Uses only the Python standard library; additionally writes .mat when SciPy
 is installed. The generated .m script can create the same .mat in MATLAB.
@@ -21,6 +21,7 @@ DATASETS = {
     'v3': 'qwen_whole_movie_scores_v3_cartoon/ranked_candidates.csv',
     'v5_other3': 'qwen_whole_movie_scores_v5_2s_6fps/ranked_top20_min7_other3.csv',
     'v5_other10': 'qwen_whole_movie_scores_v5_2s_6fps/ranked_top20_min7_other10.csv',
+    'faces': 'face_pilot_review/20261028T172127994468Z/face_intervals.csv',
 }
 
 
@@ -29,22 +30,28 @@ def read_candidates(path, offset=0.0):
         raise ValueError('Movie offset must be finite.')
     with Path(path).open(encoding='utf-8-sig', newline='') as handle:
         reader = csv.DictReader(handle)
-        required = {'category', 'focus_start_s', 'focus_end_s', 'window_id'}
+        is_faces = {'start_s', 'end_s', 'duration_s'}.issubset(reader.fieldnames or []) and 'category' not in (reader.fieldnames or [])
+        required = {'start_s', 'end_s', 'duration_s'} if is_faces else {'category', 'focus_start_s', 'focus_end_s', 'window_id'}
         if not required.issubset(reader.fieldnames or []):
             raise ValueError('Missing required columns: ' + ', '.join(sorted(required - set(reader.fieldnames or []))))
         rows = []
         for line, row in enumerate(reader, 2):
             if None in row or any(value is None for value in row.values()):
                 raise ValueError(f'CSV row {line}: malformed row.')
-            category = row['category'].strip().lower()
+            category = 'faces' if is_faces else row['category'].strip().lower()
             if not re.fullmatch(r'[a-z][a-z0-9_]*', category):
                 raise ValueError(f'CSV row {line}: invalid category {category!r}.')
-            start, end = float(row['focus_start_s']), float(row['focus_end_s'])
+            start, end = (float(row['start_s']), float(row['end_s'])) if is_faces else (float(row['focus_start_s']), float(row['focus_end_s']))
             if not all(math.isfinite(x) for x in (start, end)) or start < 0 or end <= start:
                 raise ValueError(f'CSV row {line}: expected finite 0 <= start < end.')
             if not math.isfinite(start + offset):
                 raise ValueError(f'CSV row {line}: offset causes overflow.')
+            if is_faces:
+                supplied_duration = float(row['duration_s'])
+                if not math.isfinite(supplied_duration) or not math.isclose(supplied_duration, end-start, rel_tol=0, abs_tol=1e-6):
+                    raise ValueError(f'CSV row {line}: duration_s does not match end_s - start_s.')
             rows.append(dict(source_row=line, original=row, category=category,
+                             input_kind='face_intervals' if is_faces else 'ranked_candidates',
                              start=start, end=end, onset=start + offset, duration=end-start))
     if not rows:
         raise ValueError('Input contains no candidate rows.')
@@ -67,14 +74,15 @@ def overlap_pairs(rows):
             if overlap > 0:
                 pairs.append(dict(source_rows=[a['source_row'], b['source_row']],
                                   categories=[a['category'], b['category']],
-                                  window_ids=[a['original']['window_id'], b['original']['window_id']],
+                                  window_ids=[a['original'].get('window_id'), b['original'].get('window_id')],
                                   overlap_seconds=overlap))
     return pairs
 
 
-def matlab_text(groups, offset):
+def matlab_text(groups, offset, is_faces=False):
     lines = [
-        '% Generated candidate WINDOW timings, not validated event boundaries.',
+        ('% Predicted face-presence intervals at sampling resolution; not manually validated.' if is_faces
+         else '% Generated candidate WINDOW timings, not validated event boundaries.'),
         '% Units: seconds. Source origin: beginning of source movie.',
         '% No HRF shift, filtering, relabelling, or overlap merging applied.',
         '% Reviewed labels are retained in candidate_events.csv, not applied.',
@@ -119,6 +127,7 @@ def write_mat(path, groups, offset):
 
 def export(source, output, offset=0.0):
     rows = read_candidates(source, offset)
+    is_faces = rows[0]['input_kind'] == 'face_intervals'
     groups = group_candidates(rows)
     fields = ['source_csv_row', 'export_condition', 'export_onset_s', 'export_duration_s']
     if set(fields) & set(rows[0]['original']):
@@ -127,7 +136,7 @@ def export(source, output, offset=0.0):
     if output.exists() and any(output.iterdir()):
         raise ValueError('Output directory is not empty; choose a new directory to preserve existing files.')
     output.mkdir(parents=True, exist_ok=True)
-    (output / 'conditions.m').write_text(matlab_text(groups, offset), encoding='utf-8')
+    (output / 'conditions.m').write_text(matlab_text(groups, offset, is_faces), encoding='utf-8')
     # Original columns are kept verbatim, including review fields and evidence.
     with (output / 'candidate_events.csv').open('w', encoding='utf-8', newline='') as handle:
         writer = csv.DictWriter(handle, fieldnames=fields + list(rows[0]['original']))
@@ -140,18 +149,22 @@ def export(source, output, offset=0.0):
     mat_written = write_mat(output / 'conditions.mat', groups, offset)
     report = dict(source=str(Path(source).resolve()),
                   source_sha256=hashlib.sha256(Path(source).read_bytes()).hexdigest(),
-                  source_time_reference='Assumed source movie seconds; confirm against windows.csv / generating script.',
+                  input_kind=rows[0]['input_kind'],
+                  source_time_reference='Source movie seconds; confirm movie version and alignment before fMRI use.',
                   movie_offset_seconds=offset, hrf_shift_applied=False,
-                  selection='All input rows; category column used; reviewed_label not applied.',
-                  timing_meaning='Candidate focus-window boundaries, not within-window event detections.',
+                  selection=('All supplied positive face intervals; no absent intervals inferred.' if is_faces else
+                             'All input rows; category column used; reviewed_label not applied.'),
+                  timing_meaning=('Predicted face-presence intervals at sampling resolution; no review padding added.' if is_faces else
+                                  'Candidate focus-window boundaries, not within-window event detections.'),
+                  total_interval_seconds=sum(r['duration'] for r in rows),
                   category_counts={c: len(items) for c, items in groups.items()},
-                  blank_review_labels=sum(not r['original'].get('reviewed_label', '').strip() for r in rows),
+                  blank_review_labels=None if is_faces else sum(not r['original'].get('reviewed_label', '').strip() for r in rows),
                   overlaps=overlap_pairs(rows), mat_written=mat_written)
     (output / 'conversion_report.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     return report
 
 
-def batch_export(project_root, datasets, output_root=None, offset=0.0):
+def batch_export(project_root, datasets, output_root=None, offset=0.0, face_run=None):
     """Each invocation creates a unique run folder, including a status manifest."""
     if not math.isfinite(offset):
         raise ValueError('Movie offset must be finite.')
@@ -165,7 +178,14 @@ def batch_export(project_root, datasets, output_root=None, offset=0.0):
     results = {}
     for key in dict.fromkeys(datasets):
         source = project_root / 'outputs' / DATASETS[key]
+        if key == 'faces' and face_run is not None:
+            folder = Path(face_run).expanduser()
+            if not folder.is_absolute():
+                folder = project_root / 'outputs' / 'face_pilot_review' / folder
+            source = folder / 'face_intervals.csv'
         destination = run_dir / key
+        if key == 'faces':
+            destination = source.parent / 'matlab_timings' / run_dir.name
         if not source.is_file():
             results[key] = dict(status='missing', source=str(source))
             continue
@@ -192,7 +212,9 @@ def main():
     parser.add_argument('--project-root', type=Path,
                         help='Path to partlycloudy_project. Defaults to the parent of this script\'s code folder.')
     parser.add_argument('--datasets', nargs='+', choices=list(DATASETS),
-                        help='Batch datasets to process; defaults to all four.')
+                        help='Batch datasets to process; defaults to all five, including faces.')
+    parser.add_argument('--face-run',
+                        help='Face-pilot run ID or absolute run-folder path; default 20261028T172127994468. Used when faces is selected.')
     parser.add_argument('--movie-offset-seconds', type=float, default=0.0,
                         help='Movie start relative to analysis time zero; default 0 retains movie-relative times. Not an HRF delay.')
     args = parser.parse_args()
@@ -205,7 +227,7 @@ def main():
                     raise ValueError('Place the script directly in the project code folder or provide --project-root.')
                 root = script_dir.parent
             manifest = batch_export(root, args.datasets or list(DATASETS),
-                                    args.output_dir, args.movie_offset_seconds)
+                                    args.output_dir, args.movie_offset_seconds, args.face_run)
             for key, result in manifest['datasets'].items():
                 print(f'{key}: {result["status"]}')
                 if result['status'] == 'ok':
@@ -219,8 +241,8 @@ def main():
             if any(r['status'] != 'ok' for r in manifest['datasets'].values()):
                 parser.exit(1, 'Some requested inputs were missing or failed; see the report. Successful exports were retained.\n')
             return
-        if args.datasets or args.project_root:
-            raise ValueError('--datasets and --project-root apply only to batch mode (omit the positional CSV).')
+        if args.datasets or args.project_root or args.face_run:
+            raise ValueError('--datasets, --project-root and --face-run apply only to batch mode (omit the positional CSV).')
         if args.output_dir is None:
             raise ValueError('Single-CSV mode requires --output-dir.')
         report = export(args.input_csv, args.output_dir, args.movie_offset_seconds)
